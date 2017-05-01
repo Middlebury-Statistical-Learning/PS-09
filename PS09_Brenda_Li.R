@@ -1,136 +1,105 @@
-# Submission doesn't work on Kaggle
 
+#Brenda Li
+#Problem Set 09
+#KNN Neightbors: Shelter Outcomes
+
+
+# Loading all libraries
 library(dplyr)
 library(caret)
+library(knncat)
+library(e1071)
+library(stringr)
+library(MLmetrics)
 
-train<-read.csv("train.csv")
-test<-read.csv("test.csv")
-
-
-# Testing out the model (I get an error of there being too many ties when I use the whole train dataset)
-set.seed(17)
-mini_train<-sample_frac(train,0.01)
-mini_test<-sample_frac(test,1)
-classifications<-mini_train$Category
-
-train_input<-mini_train %>% select(X,Y)
-test_input<-mini_test%>% select(X,Y)
+# Loading the train and test datasets
+shelter_train<-read.csv("Shelter_train.csv.gz")
+shelter_test<-read.csv("shelter_test.csv.gz")
 
 
-num_neigh<-3
+# PART 1: CLEANING DATASETS
 
-model_knn <-
-  class::knn(train=train_input, test=test_input, cl=classifications,k = num_neigh, prob=TRUE)
-
-#probs <-
-#  knn3Train(train=train_input,test=test_input, cl=classifications,k = num_neigh, prob=TRUE)
-
-mini_test <- mini_test %>%
-  mutate(
-    Category_hat = model_knn,
-    Probability = attr(model_knn, "prob")
-  )
+# Selecting only relevant variables and filtering out NA's
+clean_test<-shelter_test %>% select(AnimalType,SexuponOutcome,AgeuponOutcome) %>% na.omit()
+clean_train<-shelter_train %>% select(OutcomeType,AnimalType,SexuponOutcome,AgeuponOutcome) %>% na.omit()
 
 
-#a<-knn.cv(train=train_input,cl=classifications,k=k_values,prob=TRUE)
+# Mutating variables to be numerical rather than categorical for KNN (haven't figured out how to use knncat yet)
+clean_train$AgeuponOutcome<-as.character(clean_train$AgeuponOutcome)
+clean_test$AgeuponOutcome<-as.character(clean_test$AgeuponOutcome)
 
-# Cross Validation for Different Values of K
+clean_train<-clean_train %>% 
+  mutate(AnimalTypeInt=ifelse(AnimalType=="Dog",1,0),
+         SexuponOutcomeInt=ifelse(SexuponOutcome=="Intact Female",1,SexuponOutcome),
+         SexuponOutcomeInt=ifelse(SexuponOutcome=="Intact Male",2,SexuponOutcomeInt),
+         SexuponOutcomeInt=ifelse(SexuponOutcome=="Spayed Female",3,SexuponOutcomeInt),
+         SexuponOutcomeInt=ifelse(SexuponOutcome=="Neutered Male",4,SexuponOutcomeInt),
+         SexuponOutcomeInt=ifelse(SexuponOutcome=="Unknown",0,SexuponOutcomeInt),
+         AgeuponOutcomeInt=ifelse(word(AgeuponOutcome,-1)=="months", as.integer(word(AgeuponOutcome, 1))*4, 0),
+         AgeuponOutcomeInt=ifelse(word(AgeuponOutcome,-1)=="month", as.integer(word(AgeuponOutcome, 1))*4, AgeuponOutcomeInt),
+         AgeuponOutcomeInt=ifelse(word(AgeuponOutcome,-1)=="weeks", as.integer(word(AgeuponOutcome, 1)), AgeuponOutcomeInt),
+         AgeuponOutcomeInt=ifelse(word(AgeuponOutcome,-1)=="week", as.integer(word(AgeuponOutcome, 1)), AgeuponOutcomeInt),
+         AgeuponOutcomeInt=ifelse(word(AgeuponOutcome,-1)=="years", as.integer(word(AgeuponOutcome, 1))*52, AgeuponOutcomeInt),
+         AgeuponOutcomeInt=ifelse(word(AgeuponOutcome,-1)=="days", as.integer(word(AgeuponOutcome, 1))/7, AgeuponOutcomeInt),
+         AgeuponOutcomeInt=ifelse(word(AgeuponOutcome,-1)=="year", as.integer(word(AgeuponOutcome, 1))*52, AgeuponOutcomeInt),
+         AgeuponOutcomeInt=ifelse(word(AgeuponOutcome,-1)=="day", as.integer(word(AgeuponOutcome, 1))/7, AgeuponOutcomeInt)) %>% 
+  select(OutcomeType,AnimalTypeInt,SexuponOutcomeInt,AgeuponOutcomeInt)
 
+clean_test<-clean_test %>% 
+  mutate(AnimalTypeInt=ifelse(AnimalType=="Dog",1,0),
+         SexuponOutcomeInt=ifelse(SexuponOutcome=="Intact Female",1,SexuponOutcome),
+         SexuponOutcomeInt=ifelse(SexuponOutcome=="Intact Male",2,SexuponOutcomeInt),
+         SexuponOutcomeInt=ifelse(SexuponOutcome=="Spayed Female",3,SexuponOutcomeInt),
+         SexuponOutcomeInt=ifelse(SexuponOutcome=="Neutered Male",4,SexuponOutcomeInt),
+         SexuponOutcomeInt=ifelse(SexuponOutcome=="Unknown",0,SexuponOutcomeInt),
+         AgeuponOutcomeInt=ifelse(word(AgeuponOutcome,-1)=="months", as.integer(word(AgeuponOutcome, 1))*4, 0),
+         AgeuponOutcomeInt=ifelse(word(AgeuponOutcome,-1)=="month", as.integer(word(AgeuponOutcome, 1))*4, AgeuponOutcomeInt),
+         AgeuponOutcomeInt=ifelse(word(AgeuponOutcome,-1)=="weeks", as.integer(word(AgeuponOutcome, 1)), AgeuponOutcomeInt),
+         AgeuponOutcomeInt=ifelse(word(AgeuponOutcome,-1)=="week", as.integer(word(AgeuponOutcome, 1)), AgeuponOutcomeInt),
+         AgeuponOutcomeInt=ifelse(word(AgeuponOutcome,-1)=="years", as.integer(word(AgeuponOutcome, 1))*52, AgeuponOutcomeInt),
+         AgeuponOutcomeInt=ifelse(word(AgeuponOutcome,-1)=="days", as.integer(word(AgeuponOutcome, 1))/7, AgeuponOutcomeInt),
+         AgeuponOutcomeInt=ifelse(word(AgeuponOutcome,-1)=="year", as.integer(word(AgeuponOutcome, 1))*52, AgeuponOutcomeInt),
+         AgeuponOutcomeInt=ifelse(word(AgeuponOutcome,-1)=="day", as.integer(word(AgeuponOutcome, 1))/7, AgeuponOutcomeInt)) %>% 
+  select(AnimalTypeInt,SexuponOutcomeInt,AgeuponOutcomeInt)
+
+
+# STEP 2: USING CV TO FIND OPTIMAL K
+
+# making a smaller training dataset since using too large of a training set results in too many ties
+mini_train<-sample_frac(clean_train,0.75) %>% select(OutcomeType, AnimalTypeInt,SexuponOutcomeInt,AgeuponOutcomeInt)
+
+# setting up CV
 mini_train <-mini_train[sample(nrow(mini_train)),]
-
 n_folds <- 5
 mini_train_cv <- mini_train%>%
   sample_frac(1) %>%
   mutate(fold = rep(1:n_folds, length=n())) %>%
   arrange(fold)
 
-k_values<-seq(1,200,1)
+# testing out different k_values using CV 
+k_values<-seq(1,300,20)
 best_k<-rep(0,n_folds)
 for (i in 1:n_folds){
-  min_error<-1
+  best_error<-Inf
   pseudo_train<-mini_train_cv %>% filter(fold!=i)
   pseudo_test<-mini_train_cv %>% filter(fold==i)
   for (k in k_values){
-    classifications_CV<-pseudo_train$Category
-    pseudo_input_train<-pseudo_train %>% select(X,Y)
-    pseudo_input_test<-pseudo_test %>% select(X,Y)
-    model_knn_CV <-
-      class::knn(train=pseudo_input_train, test=pseudo_input_test, cl=classifications_CV,k, prob=TRUE)
-    pseudo_test <- pseudo_test %>%
-      mutate(
-        Category_hat = model_knn_CV,
-        Probability = attr(model_knn_CV, "prob"),
-        wrong=ifelse(Category_hat!=Category,1,0)
-      )
-    if (mean(pseudo_test$wrong)<min_error){
-      min_error<-mean(pseudo_test$wrong)
+    knn_fit_CV<-knn3Train(train=select(pseudo_train,-OutcomeType),test=select(pseudo_test,-OutcomeType),cl=pseudo_train$OutcomeType,k)
+    if (MultiLogLoss((attr(knn_fit_CV,"prob")),pseudo_test$OutcomeType)<best_error){
+      best_error<-MultiLogLoss((attr(knn_fit_CV,"prob")),pseudo_test$OutcomeType)
       best_k[i]<-k
     }
   }
 }
 
-optimal_k<-mean(best_k)
+# There doesn't seem to be a consistent value for the best k value of each fold
+optimal_k<-mean(best_k) #let's choose the optimal k to be 165
 
 
-# Make Predictions
+# PART 3: MAKING PREDICTIONS ON THE TEST SET
+predictions<-knn3Train(train=select(mini_train,-OutcomeType),test=clean_test,cl=mini_train$OutcomeType,k=120)
 
-set.seed(17)
-mini_train<-sample_frac(train,0.01)
-classifications<-mini_train$Category
-
-train_input<-mini_train %>% select(X,Y)
-test_input<-test%>% select(X,Y)
-
-model_knn <-
-  class::knn(train=train_input, test=test_input, cl=classifications,k = optimal_k, prob=TRUE)
-
-test <- test %>%
-  mutate(
-    Category_hat = model_knn,
-    Probability = attr(model_knn, "prob")
-  )
-
-submission<-test %>% select(Id,Category_hat) %>% 
-  mutate(ARSON=ifelse(Category_hat=="ARSON",1,0),
-         ASSAULT=ifelse(Category_hat=="ASSAULT",1,0),
-         BAD_CHECKS=ifelse(Category_hat=="BAD CHECKS",1,0),
-         BRIBERY=ifelse(Category_hat=="BRIBERY",1,0),
-         BURGLARY=ifelse(Category_hat=="BURGLARY",1,0),
-         DISORDERLY_CONDUCT=ifelse(Category_hat=="DISORDERLY CONDUCT",1,0),
-         DRIVING_UNDER_THE_INFLUENCE=ifelse(Category_hat=="DRIVING UNDER THE INFLUENCE",1,0),
-         DRUG_NARCOTIC=ifelse(Category_hat=="DRUG/NARCOTIC",1,0),
-         DRUNKENNESS=ifelse(Category_hat=="DRUNKENNESS",1,0),
-         EMBEZZLEMENT=ifelse(Category_hat=="EMBEZZLEMENT",1,0),
-         EXTORTION=ifelse(Category_hat=="EXTORTION",1,0),
-         FAMILY_OFFENSES=ifelse(Category_hat=="FAMILY OFFENSES",1,0),
-         FORGERY_COUNTERFEITING=ifelse(Category_hat=="FORGERY/COUNTERFEITING",1,0),
-         FRAUD=ifelse(Category_hat=="FRAUD",1,0),
-         GAMBLING=ifelse(Category_hat=="GAMBLING",1,0),
-         KIDNAPPING=ifelse(Category_hat=="KIDNAPPING",1,0),
-         LARCENY_THEFT=ifelse(Category_hat=="LARCENY/THEFT",1,0),
-         LIQUOR_LAWS=ifelse(Category_hat=="LIQUOR LAWS",1,0),
-         LOITERING=ifelse(Category_hat=="LOITERING",1,0),
-         MISSING_PERSON=ifelse(Category_hat=="MISSING PERSON",1,0),
-         NON_CRIMINAL=ifelse(Category_hat=="NON-CRIMINAL",1,0),
-         OTHER_OFFENSES=ifelse(Category_hat=="OTHER OFFENSES",1,0),
-         PORNOGRAPHY_OBSCENE_MAT=ifelse(Category_hat=="PORNOGRAPHY/OBSCENE MAT",1,0),
-         PROSTITUTION=ifelse(Category_hat=="PROSTITUTION",1,0),
-         RECOVERED_VEHICLE=ifelse(Category_hat=="RECOVERED VEHICLE",1,0),
-         ROBBERY=ifelse(Category_hat=="ROBBERY",1,0),
-         RUNAWAY=ifelse(Category_hat=="RUNAWAY",1,0),
-         SECONDARY_CODES=ifelse(Category_hat=="SECONDARY CODES",1,0),
-         SEX_OFFENSES_FORCIBLE=ifelse(Category_hat=="SEX OFFENSES FORCIBLE",1,0),
-         SEX_OFFENSES_NON_FORCIBLE=ifelse(Category_hat=="SEX OFFENSES NON FORCIBLE",1,0),
-         STOLEN_PROPERTY=ifelse(Category_hat=="STOLEN PROPERTY",1,0),
-         SUICIDE=ifelse(Category_hat=="SUICIDE",1,0),
-         SUSPICIOUS_OCC=ifelse(Category_hat=="SUSPICIOUS_OCC",1,0),
-         TREA=ifelse(Category_hat=="TREA",1,0),
-         TRESPASS=ifelse(Category_hat=="TRESPASS",1,0),
-         VANDALISM=ifelse(Category_hat=="VANDALISM",1,0),
-         VEHICLE_THEFT=ifelse(Category_hat=="VEHICLE THEFT",1,0),
-         WARRANTS=ifelse(Category_hat=="WARRANTS",1,0),
-         WEAPON_LAWS=ifelse(Category_hat=="WEAPON LAWS",1,0))
+submission<-as.data.frame(attr(predictions,"prob"))
 
 submission %>% 
-  select(-Category_hat) %>% 
-  write.csv("SF_Crime_submission.csv") 
+  write.csv("Shelter_submission_v1.csv") 
